@@ -1,0 +1,488 @@
+# Comandos usados Práctica 1: Instalación de Webmin
+
+# WEBMIN
+
+# Agregar el repositorio de webmin
+# Crear un archivo con:
+sudo nano /etc/yum.repos.d/webmin.repo
+
+# Pegar dentro del archivo:
+[Webmin]
+name=Webmin Distribution Neutral
+#baseurl=https://download.webmin.com/download/yum
+mirrorlist=https://download.webmin.com/download/yum/mirrorlist
+enabled=1
+gpgcheck=1
+gpgkey=https://download.webmin.com/download/jameron-key.asc
+
+# Instalar dependencias y webmin
+sudo dnf makecache
+sudo dnf install webmin --nogpgcheck -y
+
+# Habilitar el servicio
+sudo systemctl enable --now webmin
+
+# Configurar firewall
+sudo firewall-cmd --permanent --add-port=10000/tcp
+sudo firewall-cmd --reload
+
+# Entrar con https://<TU_IP>:10000
+
+# PRÁCTICAS:
+
+# Administración de usuarios: Crear, y eliminar una cuenta de usuario: 
+# Ruta: System -> Users and Groups.
+
+# Gestión de servicios: Iniciar, detener y reiniciar servicio del sistema (Ej SSH): 
+# Ruta: System -> Bootup and Shutdown
+
+# Configuración de red: Configurar una IP estática en interfaces de red: 
+# Ruta: Networking -> Network Configuration.
+
+# Administración de software: Instalar Alguna herramienta: 
+# Ruta: System -> Software Packages.
+
+# Gestión de archivos y directorios: Explorar, editar un archivo y eliminarlo: 
+# Ruta: Tools -> File Manager
+
+# Monitorización del sistema: Supervisar el rendimiento del sistema (Memoria, Procesador Almacenamiento): 
+# Ruta: Dashboard
+
+================================================
+
+
+
+
+
+
+
+Comandos usados Práctica 2: Despliegue de una VM con terraform en Digital Ocean 
+
+# ==============================================================================
+# 1. CREAR TOKEN DE DIGITALOCEAN (manual)
+# ==============================================================================
+# Ir a: https://cloud.digitalocean.com/account/api/tokens
+# Crear un token -> otorgar permisos WRITE AND READ -> guardar el token.
+
+
+# ==============================================================================
+# 2. INSTALAR DEPENDENCIAS
+# ==============================================================================
+sudo dnf install -y yum-utils shadow-utils
+
+# ==============================================================================
+# 3. AGREGAR EL REPOSITORIO OFICIAL DE HASHICORP
+# ==============================================================================
+sudo dnf config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+
+# ==============================================================================
+# 4. AJUSTAR EL REPO PARA QUE SEA COMPATIBLE CON CENTOS STREAM 10
+# (Este ajuste es necesario para que el paquete pueda instalarse)
+# ==============================================================================
+sudo sed -i 's/$releasever/9/g' /etc/yum.repos.d/hashicorp.repo
+
+# ==============================================================================
+# 5. INSTALAR TERRAFORM
+# ==============================================================================
+sudo dnf install -y terraform
+
+# Verificar
+terraform --version
+
+# ==============================================================================
+# 6. CREAR LLAVE SSH PARA DIGITALOCEAN
+# ==============================================================================
+ssh-keygen -t rsa -b 4096 -C "terraform_do_key"
+
+# La llave queda en:
+# ~/.ssh/id_rsa
+# ~/.ssh/id_rsa.pub
+
+# ==============================================================================
+# 7. CREAR CARPETA DEL PROYECTO
+# ==============================================================================
+mkdir -p ~/do_terraform
+cd ~/do_terraform
+
+# ==============================================================================
+# 8. EXPORTAR EL TOKEN DE DIGITALOCEAN
+# ==============================================================================
+export DIGITALOCEAN_TOKEN="colocar toquen aqui"
+
+# (Opcional, hacerlo permanente)
+echo 'export DIGITALOCEAN_TOKEN="TU_TOKEN_AQUI"' >> ~/.bashrc
+
+# ==============================================================================
+# 9. CREAR ARCHIVO main.tf
+# ==============================================================================
+cat << 'EOF' > main.tf
+terraform {
+  required_providers {
+    digitalocean = {
+      source = "digitalocean/digitalocean"
+      version = "~> 1.14"
+    }
+  }
+}
+
+provider "digitalocean" {
+}
+
+resource "digitalocean_ssh_key" "mi_llave" {
+  name       = "Llave-CentOS-Stream10"
+  public_key = file("~/.ssh/id_rsa.pub")
+}
+
+resource "digitalocean_droplet" "os3_vm" {
+  image    = "ubuntu-22-04-x64"
+  name     = "OS3vm"
+  region   = "nyc1"
+  size     = "s-1vcpu-1gb"
+  ssh_keys = [digitalocean_ssh_key.mi_llave.fingerprint]
+}
+
+output "ip_address" {
+  value = digitalocean_droplet.os3_vm.ipv4_address
+}
+EOF
+
+# ==============================================================================
+# 10. INICIALIZAR TERRAFORM
+# ==============================================================================
+terraform init
+
+# ==============================================================================
+# 11. PLANIFICAR CAMBIOS
+# ==============================================================================
+terraform plan
+
+# ==============================================================================
+# 12. APLICAR CAMBIOS Y CREAR LA VM
+# ==============================================================================
+terraform apply -auto-approve
+
+# ==============================================================================
+# 13. VALIDACIÓN
+# ==============================================================================
+# Mostrar la IP generada:
+terraform output ip_address
+
+# Conectarse por SSH (reemplazar <IP>)
+ssh root@<IP>
+
+# Validar también desde el panel web:
+# https://cloud.digitalocean.com/droplets
+
+# ==============================================================================
+# 14. DESTRUIR LA INFRAESTRUCTURA (MUY IMPORTANTE)
+# ==============================================================================
+terraform destroy -auto-approve
+
+# ==============================================================================
+# SOLUCIONES A PROBLEMAS COMUNES
+# ==============================================================================
+# Terraform no inicia
+terraform init -upgrade
+
+# Permiso denegado con SSH
+chmod 600 ~/.ssh/id_rsa
+ssh-add ~/.ssh/id_rsa
+sudo systemctl restart sshd
+
+# Error de token
+export DIGITALOCEAN_TOKEN="TOKEN_CORRECTO"
+terraform apply
+================================================
+
+
+
+
+
+
+
+Comandos usados Práctica 3: Instalación de Ansible
+==================================================
+PARTE A: VM PRINCIPAL (CENTOS - ANSIBLE CONTROLLER)
+===================================================
+
+[Actualizar sistema - EN VM PRINCIPAL]
+sudo dnf update -y
+
+[Instalar Ansible y dependencias - EN VM PRINCIPAL]
+sudo dnf install -y ansible-core python3 python3-pip openssh-clients
+
+[Verificar instalación - EN VM PRINCIPAL]
+ansible --version
+
+==================================================
+PARTE B: CREAR USUARIO ANSIBLE EN VM PRINCIPAL
+==============================================
+
+[Crear usuario ansible - EN VM PRINCIPAL]
+sudo useradd ansible
+sudo passwd ansible
+
+[Dar permisos sudo - EN VM PRINCIPAL]
+sudo usermod -aG wheel ansible
+
+[Permitir sudo sin contraseña - EN VM PRINCIPAL]
+sudo visudo
+
+AGREGAR:
+ansible ALL=(ALL) NOPASSWD: ALL
+
+[Cambiar al usuario ansible - EN VM PRINCIPAL]
+su - ansible
+
+[Generar clave SSH - EN VM PRINCIPAL (usuario ansible)]
+ssh-keygen -t ed25519
+
+(Presionar ENTER en todas las opciones)
+
+[Verificar clave pública]
+cat ~/.ssh/id_ed25519.pub
+
+
+==================================================
+PARTE C: VM CLIENTE LINUX (UBUNTU 22.04 - DIGITALOCEAN)
+=======================================================
+
+[Entrar como root - DESDE VM PRINCIPAL]
+ssh root@IP_LINUX
+
+[Actualizar sistema - EN VM CLIENTE UBUNTU]
+apt update -y
+apt upgrade -y
+
+[Instalar Python (requerido por Ansible)]
+apt install -y python3
+
+[Verificar servicio SSH]
+systemctl status ssh
+
+[Crear usuario ansible - EN VM CLIENTE UBUNTU]
+adduser ansible
+
+[Dar permisos sudo - EN VM CLIENTE UBUNTU]
+usermod -aG sudo ansible
+
+[Permitir sudo sin contraseña - EN VM CLIENTE UBUNTU]
+visudo
+
+AGREGAR:
+ansible ALL=(ALL) NOPASSWD: ALL
+
+==================================================
+PARTE D: CONFIGURAR SSH (CASO DIGITALOCEAN)
+===========================================
+
+IMPORTANTE:
+DigitalOcean NO permite autenticación por contraseña.
+Solo permite acceso con claves SSH.
+
+[Obtener clave pública - EN VM PRINCIPAL (usuario ansible)]
+cat ~/.ssh/id_ed25519.pub
+
+(COPIAR TODO EL CONTENIDO)
+
+[Crear archivo authorized_keys - EN VM UBUNTU COMO root]
+mkdir -p /home/ansible/.ssh
+nano /home/ansible/.ssh/authorized_keys
+
+(PEGAR LA CLAVE)
+
+[Asignar permisos correctos - EN VM UBUNTU]
+chown -R ansible:ansible /home/ansible/.ssh
+chmod 700 /home/ansible/.ssh
+chmod 600 /home/ansible/.ssh/authorized_keys
+
+[Salir del servidor]
+exit
+
+[Probar conexión SSH - EN VM PRINCIPAL]
+ssh ansible@IP_LINUX
+
+==================================================
+PARTE E: CONFIGURAR VM WINDOWS 10
+=================================
+
+(ABRIR POWERSHELL COMO ADMINISTRADOR)
+
+[Habilitar WinRM - EN VM WINDOWS]
+winrm quickconfig -q
+Enable-PSRemoting -Force
+
+[Permitir autenticación - EN VM WINDOWS]
+Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true
+Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true
+
+[Abrir puerto 5985 - EN VM WINDOWS]
+New-NetFirewallRule -Name "WinRM-HTTP" -DisplayName "WinRM HTTP" -Enabled True -Profile Any -Action Allow -Protocol TCP -LocalPort 5985
+
+[Crear usuario ansible - EN VM WINDOWS]
+net user ansible P@ssw0rd123 /add
+net localgroup administrators ansible /add
+
+[Reiniciar servicio WinRM]
+Restart-Service WinRM
+
+==================================================
+PARTE F: INSTALAR SOPORTE PARA WINDOWS EN ANSIBLE
+=================================================
+
+[Instalar colección Windows - EN VM PRINCIPAL]
+ansible-galaxy collection install ansible.windows
+
+[Instalar librería WinRM - EN VM PRINCIPAL]
+python3 -m pip install pywinrm
+
+==================================================
+PARTE G: CONFIGURAR INVENTARIO
+==============================
+
+[Editar archivo hosts - EN VM PRINCIPAL]
+sudo nano /etc/ansible/hosts
+
+AGREGAR:
+
+[linux]
+ubuntu1 ansible_host=IP_LINUX ansible_user=ansible
+
+[win]
+win1 ansible_host=IP_WINDOWS
+
+[win:vars]
+ansible_user=ansible
+ansible_password=P@ssw0rd123
+ansible_connection=winrm
+ansible_winrm_transport=basic
+ansible_port=5985
+ansible_winrm_server_cert_validation=ignore
+
+==================================================
+PARTE H: PRUEBAS DE CONECTIVIDAD
+================================
+
+[Probar Linux - EN VM PRINCIPAL]
+ansible linux -m ping
+
+[Probar Windows - EN VM PRINCIPAL]
+ansible win -m win_ping
+
+==================================================
+PARTE I: VALIDACION FINAL
+=========================
+
+[Verificar SSH sin contraseña]
+ssh ansible@IP_LINUX
+
+[Prueba completa]
+ansible linux -m ping
+ansible win -m win_ping
+================================================
+
+
+
+
+
+
+
+Comandos usados Práctica 4: Comandos Ad-Hoc
+
+ansible win -m win_copy -a "src='C:/Users/ansible/Desktop/prueba.txt' dest='C:/Users/ansible/Documents/' remote_src=yes"
+
+ansible linux -m reboot -b
+================================================
+
+
+
+
+
+
+
+Comandos usados Práctica 5: Playbooks
+
+==========================================
+1. PLAYBOOK WINDOWS: nano instalar_notepad.yml
+==========================================
+
+---
+- name: Instalacion de Notepad++ en Windows
+  hosts: win
+  tasks:
+
+    - name: Crear carpeta temporal
+      win_file:
+        path: C:\temp
+        state: directory
+
+    - name: Copiar instalador desde el controlador
+      win_copy:
+        src: /home/ansible/npp.8.5.8.Installer.x64.exe
+        dest: C:\temp\npp_installer.exe
+
+    - name: Instalar Notepad++
+      win_package:
+        path: C:\temp\npp_installer.exe
+        arguments: /S
+        state: present
+
+
+Descargar instalador:
+
+wget https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.5.8/npp.8.5.8.Installer.x64.exe
+
+==========================================
+2. PLAYBOOK LINUX: nano instalar_nginx.yml
+==========================================
+
+---
+- name: Configurar Servidor Web NGINX
+  hosts: linux
+  become: yes
+  tasks:
+
+    - name: Actualizar repositorios e instalar NGINX
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Iniciar el servicio y habilitarlo al arranque
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Permitir tráfico HTTP (puerto 80)
+      command: ufw allow 80/tcp
+
+==========================================
+3. COMANDOS DE EJECUCIÓN (EN VM PRINCIPAL)
+==========================================
+
+ansible-playbook instalar_notepad.yml
+ansible-playbook instalar_nginx.yml
+
+==========================================
+4. VALIDACIÓN WINDOWS
+==========================================
+
+ansible win -m win_shell -a "Get-Command notepad++"
+
+==========================================
+5. VALIDACIÓN LINUX
+==========================================
+
+Verificar estado del servicio:
+
+ansible linux -m shell -a "systemctl status nginx"
+
+------------------------------------------
+
+Verificar desde navegador:
+
+http://IP_LINUX
+
+
+
